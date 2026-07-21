@@ -26,9 +26,11 @@ class TestNewExtensions:
         assert not should_scan_file(f"fixtures/Program{ext}")
 
     def test_csharp_file_is_read(self):
+        # v1.2 adds `using`-directive patterns (see test_dotnet_detection.py),
+        # so `using Anthropic;` is now a detected import, not just read-but-blind.
         content = 'var client = new OpenAI();\nusing Anthropic;'
         detections = scan_file("Program.cs", content)
-        assert {d.provider for d in detections} == {"openai"}
+        assert {d.provider for d in detections} == {"openai", "anthropic"}
 
     def test_source_extensions_is_union(self):
         assert SOURCE_EXTENSIONS == SCANNABLE_EXTENSIONS | UNSUPPORTED_EXTENSIONS
