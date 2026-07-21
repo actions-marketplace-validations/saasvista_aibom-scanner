@@ -24,6 +24,12 @@ classifiers = [
 ]
 dependencies = []
 
+# Runtime stays zero-dependency. This extra is test tooling only, and exists so
+# CI can install it deterministically — `pip install -e ".[dev]"` against an
+# UNDEFINED extra warns and exits 0, which silently left pytest uninstalled.
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
 [project.scripts]
 aibom-scanner = "aibom_scanner.cli:main"
 

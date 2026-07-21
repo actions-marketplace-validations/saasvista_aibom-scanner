@@ -31,7 +31,7 @@ jobs:
 
       - name: Run tests before publishing
         run: |
-          pip install -e ".[dev]" || { pip install -e . && pip install pytest; }
+          pip install -e ".[dev]"
           PYTHONPATH=src pytest tests/ -q
 
       - run: pip install build twine
