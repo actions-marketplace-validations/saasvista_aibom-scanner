@@ -237,6 +237,34 @@ DEPENDENCY_MAP = {
 }
 
 
+# NuGet package ID prefix -> provider. Lowercase keys; matched as an exact
+# equality or a dot-boundary prefix (`anthropic` matches `Anthropic.SDK` but not
+# `AnthropicFoo`). Longest match wins.
+NUGET_DEPENDENCY_MAP = {
+    "modelcontextprotocol": "mcp",
+    "microsoft.semantickernel": "semantic_kernel",
+    "azure.ai.openai": "azure_openai",
+    "openai": "openai",
+    "betalgo.openai": "openai",
+    "anthropic": "anthropic",
+    "awssdk.bedrockruntime": "aws_bedrock",
+    "google.cloud.aiplatform": "google_ai",
+    "mscc.generativeai": "google_ai",
+}
+
+
+def _match_nuget_package(package_id: str) -> str | None:
+    """Longest dot-boundary prefix match. `Azure.AI.OpenAI` must resolve to
+    azure_openai, never openai."""
+    pid = package_id.strip().lower()
+    best = None
+    for key, provider in NUGET_DEPENDENCY_MAP.items():
+        if pid == key or pid.startswith(key + "."):
+            if best is None or len(key) > len(best[0]):
+                best = (key, provider)
+    return best[1] if best else None
+
+
 def _extract_model_name(lines: list[str], line_idx: int, context_window: int = 5) -> str | None:
     """Extract AI model name from current line or nearby context (Task 1.3)."""
     # Check current line first, then nearby lines
@@ -313,6 +341,12 @@ def scan_file(file_path: str, content: str) -> list[Detection]:
     return list(seen.values())
 
 
+def _extract_xml_attr(attrs: str, name: str) -> str | None:
+    """Extract an XML attribute value from an attribute string, either quote style."""
+    match = re.search(r"\b" + re.escape(name) + r"""\s*=\s*["']([^"']*)["']""", attrs, re.IGNORECASE)
+    return match.group(1) if match else None
+
+
 def scan_dependencies(file_path: str, content: str) -> list[dict]:
     """Scan a dependency file for AI SDK packages. Returns list of dicts with package, version, provider, source_file."""
     results = []
@@ -378,6 +412,32 @@ def scan_dependencies(file_path: str, content: str) -> list[dict]:
                     ver_match = re.search(r'"([0-9][a-zA-Z0-9\.\-]*)"', line)
                     results.append({"package": pkg, "version": ver_match.group(1) if ver_match else None, "provider": provider, "source_file": file_path})
 
+    elif filename.lower() in MANIFEST_FILENAMES or any(filename.endswith(ext) for ext in MANIFEST_EXTENSIONS):
+        # NuGet/MSBuild manifests. Regex, not XML parsing — MSBuild files carry
+        # conditionals and imports that make strict XML parsing brittle, and a
+        # malformed manifest must degrade to "no dependencies found", never raise.
+        cleaned = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
+        name_lower = filename.lower()
+        if name_lower == "packages.config":
+            element_pattern = r"<package\b([^>]*?)/?>"
+            id_attr = "id"
+        elif name_lower == "directory.packages.props":
+            element_pattern = r"<PackageVersion\b([^>]*?)/?>"
+            id_attr = "Include"
+        else:
+            element_pattern = r"<PackageReference\b([^>]*?)/?>"
+            id_attr = "Include"
+
+        for match in re.finditer(element_pattern, cleaned, re.IGNORECASE):
+            attrs = match.group(1)
+            pkg_id = _extract_xml_attr(attrs, id_attr)
+            if not pkg_id:
+                continue
+            version = _extract_xml_attr(attrs, "version")
+            provider = _match_nuget_package(pkg_id)
+            if provider:
+                results.append({"package": pkg_id, "version": version, "provider": provider, "source_file": file_path})
+
     return results
 
 
@@ -393,6 +453,11 @@ SCANNABLE_EXTENSIONS = {
 
 # JSON scanned separately — only in config-like locations, not data directories
 JSON_SCANNABLE = {".json"}
+
+# NuGet/MSBuild manifests. Narrow on purpose: `.config` and `.props` are generic
+# extensions, so only the exact filenames NuGet defines are admitted.
+MANIFEST_EXTENSIONS = {".csproj", ".fsproj", ".vbproj"}
+MANIFEST_FILENAMES = {"directory.packages.props", "packages.config"}
 
 # Every extension we consider "source" for coverage accounting. Superset of
 # SCANNABLE_EXTENSIONS: the extras are ecosystems this scanner version cannot
@@ -581,8 +646,13 @@ def should_scan_file(file_path: str) -> bool:
     # Check extension
     has_code_ext = any(file_path.endswith(ext) for ext in SCANNABLE_EXTENSIONS)
     has_json_ext = any(file_path.endswith(ext) for ext in JSON_SCANNABLE)
+    filename_lower = file_path.split("/")[-1].lower()
+    has_manifest = (
+        any(file_path.endswith(ext) for ext in MANIFEST_EXTENSIONS)
+        or filename_lower in MANIFEST_FILENAMES
+    )
 
-    if not has_code_ext and not has_json_ext:
+    if not has_code_ext and not has_json_ext and not has_manifest:
         return False
 
     # Normalize path
