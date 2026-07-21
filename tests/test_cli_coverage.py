@@ -87,3 +87,31 @@ class TestStderrHygiene:
         (tmp_path / "app.py").write_text("import openai\n")
         main(["scan", "--path", str(tmp_path), "--format", "json"])
         assert capsys.readouterr().err == ""
+
+
+class TestExitCodePrecedence:
+    """When more than one gate trips the result must be deterministic."""
+
+    @pytest.fixture
+    def observed_and_unreadable(self, tmp_path):
+        """Real AI usage (observed HIGH) AND a language we cannot read."""
+        (tmp_path / "app.py").write_text("import openai\nclient = OpenAI()\n")
+        (tmp_path / "deploy.ps1").write_text("Write-Host hi\n")
+        return tmp_path
+
+    def test_severity_wins_over_coverage(self, observed_and_unreadable):
+        """An observed finding is more actionable than a coverage gap, so 1 beats 3."""
+        with pytest.raises(SystemExit) as exc:
+            main([
+                "scan", "--path", str(observed_and_unreadable), "--format", "json",
+                "--severity-threshold", "high", "--fail-on-incomplete-coverage",
+            ])
+        assert exc.value.code == 1
+
+    def test_coverage_gate_alone_returns_3(self, unreadable_repo):
+        with pytest.raises(SystemExit) as exc:
+            main([
+                "scan", "--path", str(unreadable_repo), "--format", "json",
+                "--severity-threshold", "high", "--fail-on-incomplete-coverage",
+            ])
+        assert exc.value.code == 3

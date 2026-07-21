@@ -10,7 +10,7 @@
   <a href="https://pypi.org/project/aibom-scanner/"><img src="https://img.shields.io/pypi/v/aibom-scanner?color=blue&label=PyPI" alt="PyPI"></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
-  <a href="https://github.com/saasvista/aibom-scanner/actions"><img src="https://img.shields.io/badge/tests-137%20passing-brightgreen.svg" alt="Tests"></a>
+  <a href="https://github.com/saasvista/aibom-scanner/actions/workflows/ci.yml"><img src="https://github.com/saasvista/aibom-scanner/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/saasvista/aibom-scanner"><img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="Zero Dependencies"></a>
 </p>
 
@@ -111,6 +111,8 @@ aibom-scanner scan --path . --fail-on-incomplete-coverage
 | `1` | Observed findings at or above `--severity-threshold` |
 | `2` | Bad arguments, unreadable path, or interrupted |
 | `3` | `--fail-on-incomplete-coverage` set and languages were unreadable |
+
+If both gates trip, `1` wins — an observed finding is more actionable than a coverage gap.
 
 The coverage warning always goes to **stderr**, so piping `--format json` or
 `--format sarif` to a file yields clean, valid output.
