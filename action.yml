@@ -13,9 +13,13 @@ inputs:
     required: false
     default: 'sarif'
   severity-threshold:
-    description: 'Fail if findings at or above this severity (low, medium, high, critical)'
+    description: 'Fail if OBSERVED findings at or above this severity (low, medium, high, critical). Findings with no supporting evidence in the scanned source do not trip this gate.'
     required: false
     default: 'high'
+  fail-on-incomplete-coverage:
+    description: 'Fail (exit 3) if the scanner could not read some source languages. Off by default.'
+    required: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -23,5 +27,10 @@ runs:
       run: pip install aibom-scanner
       shell: bash
     - name: Run scan
-      run: aibom-scanner scan --path ${{ inputs.path }} --format ${{ inputs.format }} --severity-threshold ${{ inputs.severity-threshold }}
+      run: |
+        ARGS="--path ${{ inputs.path }} --format ${{ inputs.format }} --severity-threshold ${{ inputs.severity-threshold }}"
+        if [ "${{ inputs.fail-on-incomplete-coverage }}" = "true" ]; then
+          ARGS="$ARGS --fail-on-incomplete-coverage"
+        fi
+        aibom-scanner scan $ARGS
       shell: bash
