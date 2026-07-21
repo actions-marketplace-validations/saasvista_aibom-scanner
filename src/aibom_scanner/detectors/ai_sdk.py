@@ -37,16 +37,20 @@ AI_SDK_PATTERNS = [
     ("huggingface", "transformers", r"(?:Auto(?:Model|Tokenizer)(?:ForCausalLM|ForSeq2Seq|ForSequenceClassification|ForTokenClassification|ForQuestionAnswering|\.from_pretrained))", "import"),
     ("huggingface", "transformers", r"(?:from\s+transformers\b.*import.*pipeline|transformers\.pipeline\(|pipeline\(\s*[\"'](?:text-|token-|question-|summarization|translation|fill-mask|image-|audio-|zero-shot|feature-extraction|sentiment))", "api_call"),
     # Cohere
-    ("cohere", "cohere", r"(?:from\s+cohere|import\s+cohere|require\(['\"]cohere['\"])", "import"),
+    # Anchored to line start: `from app.services import cohere` imports a LOCAL
+    # module, not the SDK. See issue #2 — provider names that are common English
+    # words (cohere, replicate, together) need this or any repo with a
+    # same-named module is mis-flagged.
+    ("cohere", "cohere", r"(?:^\s*from\s+cohere\b|^\s*import\s+cohere\b|require\(['\"]cohere['\"])", "import"),
     # LangChain
     ("langchain", "langchain", r"(?:from\s+langchain|import\s+langchain|@langchain)", "import"),
     # LlamaIndex
     ("llamaindex", "llama-index", r"(?:from\s+llama_index|import\s+llama_index)", "import"),
     # Replicate
-    ("replicate", "replicate", r"(?:from\s+replicate|import\s+replicate|require\(['\"]replicate['\"])", "import"),
+    ("replicate", "replicate", r"(?:^\s*from\s+replicate\b|^\s*import\s+replicate\b|require\(['\"]replicate['\"])", "import"),
     ("replicate", "replicate", r"replicate\.run\(|replicate\.models", "api_call"),
     # Together AI
-    ("together_ai", "together", r"(?:from\s+together|import\s+together|require\(['\"]together-ai['\"])", "import"),
+    ("together_ai", "together", r"(?:^\s*from\s+together\b|^\s*import\s+together\b|require\(['\"]together-ai['\"])", "import"),
     ("together_ai", "together", r"Together\(\)|together\.chat\.completions", "api_call"),
     # Mistral
     ("mistral", "mistral", r"(?:from\s+mistralai|import\s+mistralai|require\(['\"]@mistralai)", "import"),
@@ -157,7 +161,11 @@ DEPENDENCY_MAP = {
     "google-generativeai": "google_ai",
     "google-cloud-aiplatform": "google_ai",
     "vertexai": "google_ai",
-    "boto3": "aws_bedrock",
+    # NOTE: `boto3` is deliberately absent. It is the entire AWS SDK (S3, SQS,
+    # DynamoDB, ...), so mapping it to aws_bedrock flags Bedrock for any repo
+    # touching AWS at all. Bedrock is detected from actual usage instead — see
+    # the `bedrock-runtime|bedrock.invoke_model|BedrockRuntime` api_call pattern
+    # above, which is specific and correct. Issue #2.
     "transformers": "huggingface",
     "cohere": "cohere",
     "langchain": "langchain",
@@ -231,6 +239,29 @@ def _extract_model_name(lines: list[str], line_idx: int, context_window: int = 5
     return None
 
 
+# Comment markers that start a non-code line (shell/python, C-family, JSDoc, HTML/template)
+_COMMENT_PREFIXES = ("#", "//", "/*", "*", "<!--", "--")
+
+# Asset imports match SDK import patterns but are not SDK usage
+# (e.g. `import AnthropicLogo from "assets/llm-icons/anthropic.svg"`)
+_ASSET_IMPORT = re.compile(
+    r"""['"][^'"]+\.(svg|png|jpe?g|gif|webp|ico|css|scss|sass|less|woff2?|ttf|eot|mp4|webm)['"]""",
+    re.IGNORECASE,
+)
+
+
+def _is_noise_line(line: str) -> bool:
+    """True if the line is a comment or an asset import — not real SDK usage.
+
+    Guards false positives surfaced by broader extension coverage: comment-heavy
+    shell scripts and icon imports in .vue/.svelte components.
+    """
+    stripped = line.lstrip()
+    if stripped.startswith(_COMMENT_PREFIXES):
+        return True
+    return bool(_ASSET_IMPORT.search(line))
+
+
 def scan_file(file_path: str, content: str) -> list[Detection]:
     """Scan a file's content for AI SDK usage patterns.
 
@@ -241,6 +272,8 @@ def scan_file(file_path: str, content: str) -> list[Detection]:
     lines = content.split("\n")
 
     for line_num, line in enumerate(lines, start=1):
+        if _is_noise_line(line):
+            continue
         for provider, sdk_name, pattern, det_type in AI_SDK_PATTERNS:
             if re.search(pattern, line, re.IGNORECASE):
                 model_name = _extract_model_name(lines, line_num - 1)
@@ -337,13 +370,28 @@ def scan_dependencies(file_path: str, content: str) -> list[dict]:
 
 # File extensions to scan
 SCANNABLE_EXTENSIONS = {
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".mjs",
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs",
     ".java", ".kt", ".go", ".rs", ".rb",
+    ".cs", ".fs", ".vb",
+    ".vue", ".svelte",
+    ".swift", ".sh",
     ".yaml", ".yml", ".toml",
 }
 
 # JSON scanned separately — only in config-like locations, not data directories
 JSON_SCANNABLE = {".json"}
+
+# Every extension we consider "source" for coverage accounting. Superset of
+# SCANNABLE_EXTENSIONS: the extras are ecosystems this scanner version cannot
+# read, so they form the denominator of "of the source we intended to read,
+# how much could we read".
+UNSUPPORTED_EXTENSIONS = {
+    ".php", ".scala", ".clj", ".ex", ".exs", ".dart",
+    ".cpp", ".c", ".h", ".hpp", ".m", ".mm",
+    ".pl", ".lua", ".r", ".jl", ".ps1", ".kts",
+}
+
+SOURCE_EXTENSIONS = SCANNABLE_EXTENSIONS | UNSUPPORTED_EXTENSIONS
 
 # Path segments that indicate non-production code (test, fixture, data, docs, archives)
 SKIP_PATH_SEGMENTS = {
