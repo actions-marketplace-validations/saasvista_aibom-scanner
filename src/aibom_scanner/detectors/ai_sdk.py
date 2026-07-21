@@ -116,6 +116,19 @@ AI_SDK_PATTERNS = [
     # --- Model Context Protocol (MCP) ---
     ("mcp", "mcp", r"(?:from\s+mcp|import\s+mcp)", "import"),
     ("mcp", "mcp", r"(?:FastMCP\(|mcp\.server|mcp\.client|StdioServerTransport|SSEServerTransport|StreamableHTTPServerTransport)", "api_call"),
+    # --- C# / .NET (using directives) ---
+    # Anchored to line start with a required PascalCase namespace: `using` is
+    # also C#'s resource-disposal keyword (`using var client = ...`, `using (var x = ...)`),
+    # so an unanchored match would fire on ordinary disposal code.
+    ("mcp", "ModelContextProtocol", r"^\s*using\s+ModelContextProtocol\b", "import"),
+    ("mcp", "ModelContextProtocol", r"\[McpServer(?:Tool|Resource|Prompt)(?:Type)?\b", "api_call"),
+    ("semantic_kernel", "Microsoft.SemanticKernel", r"^\s*using\s+Microsoft\.SemanticKernel\b", "import"),
+    ("azure_openai", "Azure.AI.OpenAI", r"^\s*using\s+Azure\.AI\.OpenAI\b", "import"),
+    ("openai", "OpenAI", r"^\s*using\s+OpenAI\b", "import"),
+    ("anthropic", "Anthropic.SDK", r"^\s*using\s+Anthropic\b", "import"),
+    ("aws_bedrock", "Amazon.BedrockRuntime", r"^\s*using\s+Amazon\.Bedrock", "import"),
+    ("google_ai", "Google.Cloud.AIPlatform", r"^\s*using\s+Google\.Cloud\.AIPlatform\b", "import"),
+    ("google_ai", "Mscc.GenerativeAI", r"^\s*using\s+Mscc\.GenerativeAI\b", "import"),
 ]
 
 
