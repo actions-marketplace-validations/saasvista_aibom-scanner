@@ -34,7 +34,8 @@ aibom-scanner scan --path /path/to/your/repo
 
 | | |
 |---|---|
-| **61 detection patterns** | OpenAI, Anthropic, Google AI, AWS Bedrock, Cohere, Mistral, Groq, HuggingFace, and 22 more |
+| **70 detection patterns** | OpenAI, Anthropic, Google AI, AWS Bedrock, Cohere, Mistral, Groq, HuggingFace, and 21 more |
+| **Languages** | Python, JS/TS, Go, Java, Rust, Ruby, Swift, C#/.NET — imports, API calls, and dependency manifests |
 | **10 Chinese AI providers** | 3 BIS Entity-Listed (Zhipu, iFlytek, SenseTime = CRITICAL), 7 data sovereignty flagged |
 | **Agentic AI detection** | CrewAI, AutoGen, LangGraph, Semantic Kernel, MCP |
 | **34 risk rules** | 8 categories with evidence-qualified severity adjustment |
@@ -177,7 +178,7 @@ Your Codebase
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────────┐
 │ File Walker  │────▶│  AI SDK      │────▶│ Risk Engine │────▶│ Control Mapper │
 │ git ls-files │     │  Detector    │     │ 34 rules    │     │ 48 controls    │
-│ os.walk      │     │  61 patterns │     │ 8 categories│     │ 3 frameworks   │
+│ os.walk      │     │  70 patterns │     │ 8 categories│     │ 3 frameworks   │
 └─────────────┘     └──────────────┘     └─────────────┘     └────────────────┘
                            │                    │                     │
                     Detections +          Risk findings         Gap analysis
