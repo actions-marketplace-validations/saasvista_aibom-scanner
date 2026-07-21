@@ -476,6 +476,20 @@ def consolidate_risks(raw_risks: list[dict]) -> list[dict]:
     return consolidated
 
 
+def set_evidence_basis(risks: list[dict]) -> None:
+    """Label each risk as observed or inferred, in place.
+
+    A risk is "inferred" when nothing in the scanned source backs it — no
+    evidence items and no affected providers. Labeling only: severities are
+    unchanged and no risk is dropped.
+
+    Called after consolidation, where evidence and affected_providers are final.
+    """
+    for risk in risks:
+        has_backing = bool(risk.get("evidence")) or bool(risk.get("affected_providers"))
+        risk["evidence_basis"] = "observed" if has_backing else "inferred"
+
+
 def _severity_rank(severity) -> int:
     if severity is None:
         return 0
