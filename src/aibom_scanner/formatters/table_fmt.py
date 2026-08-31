@@ -19,6 +19,46 @@ SEVERITY_COLORS = {
 }
 
 
+INFERRED_PREAMBLE = (
+    "These items reflect absence of evidence, not evidence of absence. "
+    "They were not observed in the scanned source."
+)
+
+
+def _coverage_line(result: ScanResult, files_scanned: int) -> str:
+    """One line describing what fraction of the repo's source was read."""
+    cov = result.coverage
+    if cov is None or cov.source_files_seen == 0:
+        return f"  Scanned {BOLD}{files_scanned}{RESET} files"
+
+    line = (
+        f"  Scanned {BOLD}{cov.files_scanned}{RESET} of {BOLD}{cov.source_files_seen}{RESET} "
+        f"source files ({cov.coverage_pct}%)"
+    )
+    if cov.skipped_by_path:
+        line += f" — {cov.skipped_by_path} test/fixture files excluded"
+        line += f", {cov.readable_coverage_pct}% of source attempted"
+    return line
+
+
+def _render_risks(lines: list[str], risks: list[dict]) -> None:
+    """Append the per-risk detail block for a group of risks."""
+    for risk in risks:
+        sev = risk.get("severity", "medium")
+        color = SEVERITY_COLORS.get(sev, "")
+        title = risk.get("title", "")
+        refs = ", ".join(risk.get("framework_refs", [])[:3])
+        providers_list = risk.get("affected_providers", [])
+        prov_str = ", ".join(providers_list[:5]) if providers_list else ""
+
+        lines.append(f"  {color}[{sev.upper():8s}]{RESET} {title}")
+        if prov_str:
+            lines.append(f"             {DIM}Providers: {prov_str}{RESET}")
+        if refs:
+            lines.append(f"             {DIM}Frameworks: {refs}{RESET}")
+        lines.append("")
+
+
 def format_table(result: ScanResult) -> str:
     """Format scan result as a colored terminal table."""
     lines = []
@@ -35,11 +75,23 @@ def format_table(result: ScanResult) -> str:
     files_scanned = summary.get("files_scanned", 0)
     risk_counts = summary.get("risk_counts", {})
 
-    lines.append(f"  Scanned {BOLD}{files_scanned}{RESET} files")
+    lines.append(_coverage_line(result, files_scanned))
     lines.append(f"  Found {BOLD}{total_det}{RESET} AI SDK detections + {BOLD}{total_deps}{RESET} dependency detections")
     if providers:
         prov_str = ", ".join(f"{CYAN}{p}{RESET} ({c})" for p, c in sorted(providers.items(), key=lambda x: -x[1]))
         lines.append(f"  Providers: {prov_str}")
+
+    # Unreadable languages — a partial scan must not read as a clean one
+    cov = result.coverage
+    if cov and cov.unsupported_languages:
+        detail = ", ".join(
+            f"{cov.unscanned_by_extension.get(ext, 0)} {ext} files"
+            for ext in cov.unsupported_languages
+        )
+        lines.append("")
+        lines.append(f"  {RED}{BOLD}INCOMPLETE COVERAGE{RESET}")
+        lines.append(f"  {RED}{detail} could not be read by this scanner version.{RESET}")
+        lines.append(f"  {DIM}Findings below do not account for these files.{RESET}")
 
     # Risk summary
     crit = risk_counts.get("critical", 0)
@@ -61,22 +113,19 @@ def format_table(result: ScanResult) -> str:
         if low:
             lines.append(f"  {GREEN}LOW: {low}{RESET}")
 
-        lines.append("")
-        for risk in result.risks:
-            sev = risk.get("severity", "medium")
-            color = SEVERITY_COLORS.get(sev, "")
-            title = risk.get("title", "")
-            cat = risk.get("category", "")
-            refs = ", ".join(risk.get("framework_refs", [])[:3])
-            providers_list = risk.get("affected_providers", [])
-            prov_str = ", ".join(providers_list[:5]) if providers_list else ""
+        observed = [r for r in result.risks if r.get("evidence_basis", "observed") != "inferred"]
+        inferred = [r for r in result.risks if r.get("evidence_basis", "observed") == "inferred"]
 
-            lines.append(f"  {color}[{sev.upper():8s}]{RESET} {title}")
-            if prov_str:
-                lines.append(f"             {DIM}Providers: {prov_str}{RESET}")
-            if refs:
-                lines.append(f"             {DIM}Frameworks: {refs}{RESET}")
+        if observed:
+            lines.append(f"\n{BOLD}Observed in code ({len(observed)}){RESET}")
             lines.append("")
+            _render_risks(lines, observed)
+
+        if inferred:
+            lines.append(f"\n{BOLD}Governance checklist — not observed in code ({len(inferred)}){RESET}")
+            lines.append(f"  {DIM}{INFERRED_PREAMBLE}{RESET}")
+            lines.append("")
+            _render_risks(lines, inferred)
     else:
         lines.append(f"\n  {GREEN}No risk findings.{RESET}\n")
 

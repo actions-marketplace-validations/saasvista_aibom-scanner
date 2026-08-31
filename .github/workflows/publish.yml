@@ -5,16 +5,39 @@ on:
     types: [published]
 
 permissions:
+  contents: read
   id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install build
+
+      # Guard: the git tag and the packaged version must agree. Without this a
+      # mistyped tag publishes an unexpected version, and a PyPI release cannot
+      # be replaced afterwards — only yanked.
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(python -c "import re,pathlib;print(re.search(r'^version\s*=\s*\"([^\"]+)\"',pathlib.Path('pyproject.toml').read_text(),re.M).group(1))")
+          INIT=$(python -c "import re,pathlib;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"',pathlib.Path('src/aibom_scanner/__init__.py').read_text()).group(1))")
+          echo "tag=$TAG pyproject=$PKG __init__=$INIT"
+          test "$TAG" = "$PKG"  || { echo "::error::tag $TAG != pyproject $PKG"; exit 1; }
+          test "$TAG" = "$INIT" || { echo "::error::tag $TAG != __init__ $INIT"; exit 1; }
+
+      - name: Run tests before publishing
+        run: |
+          pip install -e ".[dev]"
+          PYTHONPATH=src pytest tests/ -q
+
+      - run: pip install build twine
       - run: python -m build
+
+      # Validate package metadata renders on PyPI before uploading.
+      - run: twine check dist/*
+
       - uses: pypa/gh-action-pypi-publish@release/v1

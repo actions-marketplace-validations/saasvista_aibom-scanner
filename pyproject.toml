@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aibom-scanner"
-version = "1.0.0"
+version = "1.2.0"
 description = "Scan codebases for AI SDK usage and map compliance risks to NIST AI RMF, ISO 42001, and EU AI Act"
 readme = "README.md"
 license = "Apache-2.0"
@@ -23,6 +23,12 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = []
+
+# Runtime stays zero-dependency. This extra is test tooling only, and exists so
+# CI can install it deterministically — `pip install -e ".[dev]"` against an
+# UNDEFINED extra warns and exits 0, which silently left pytest uninstalled.
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
 
 [project.scripts]
 aibom-scanner = "aibom_scanner.cli:main"

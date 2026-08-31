@@ -10,7 +10,7 @@
   <a href="https://pypi.org/project/aibom-scanner/"><img src="https://img.shields.io/pypi/v/aibom-scanner?color=blue&label=PyPI" alt="PyPI"></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
-  <a href="https://github.com/saasvista/aibom-scanner/actions"><img src="https://img.shields.io/badge/tests-43%20passing-brightgreen.svg" alt="Tests"></a>
+  <a href="https://github.com/saasvista/aibom-scanner/actions/workflows/ci.yml"><img src="https://github.com/saasvista/aibom-scanner/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/saasvista/aibom-scanner"><img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="Zero Dependencies"></a>
 </p>
 
@@ -34,14 +34,58 @@ aibom-scanner scan --path /path/to/your/repo
 
 | | |
 |---|---|
-| **61 detection patterns** | OpenAI, Anthropic, Google AI, AWS Bedrock, Cohere, Mistral, Groq, HuggingFace, and 22 more |
+| **70 detection patterns** | OpenAI, Anthropic, Google AI, AWS Bedrock, Cohere, Mistral, Groq, HuggingFace, and 21 more |
+| **Languages** | Python, JS/TS, Go, Java, Rust, Ruby, Swift, C#/.NET — imports, API calls, and dependency manifests |
 | **10 Chinese AI providers** | 3 BIS Entity-Listed (Zhipu, iFlytek, SenseTime = CRITICAL), 7 data sovereignty flagged |
 | **Agentic AI detection** | CrewAI, AutoGen, LangGraph, Semantic Kernel, MCP |
 | **34 risk rules** | 8 categories with evidence-qualified severity adjustment |
 | **48 compliance controls** | NIST AI RMF (23), ISO 42001 (15), EU AI Act (10) |
 | **Secrets detection** | Hardcoded API keys, Vault, AWS Secrets Manager, dotenv |
 | **Dev tool detection** | Cursor, GitHub Copilot, Claude Code, Aider, TabNine |
+| **Coverage accounting** | Every scan reports what it read — and what it could not |
 | **Zero dependencies** | Pure Python stdlib. Nothing to install but Python. |
+
+## Coverage: what the scan actually read
+
+An AI Bill of Materials that silently omits what it could not parse is not
+incomplete, it is wrong. Every scan reports its own denominator:
+
+```
+Scanned 86 of 173 source files (49.7%) — 86 test/fixture files excluded, 98.9% of source attempted
+```
+
+Two ratios, because either one alone misleads:
+
+| Field | Meaning |
+|---|---|
+| `coverage_pct` | `files_scanned / source_files_seen` — the honest headline. Every source file in the tree is in the denominator. |
+| `readable_coverage_pct` | `files_scanned / (source_files_seen - skipped_by_path)` — isolates scanner capability from the tests and fixtures deliberately excluded. |
+
+Quoting only the second would report ~99% for a scan that read half a repo.
+
+Every unread source file is attributed to exactly one reason:
+
+- **`skipped_by_path`** — intentional exclusion (tests, fixtures, examples, vendor).
+- **`unscanned_by_extension`** — this scanner version cannot parse the language.
+
+**Languages the scanner cannot read are reported, never treated as clean.** When any
+turn up, a warning is printed to stderr, the table output shows an `INCOMPLETE
+COVERAGE` block, and SARIF carries a `toolExecutionNotification` so the run reads as
+partial rather than silently green. Currently unreadable: `.php`, `.scala`, `.clj`,
+`.ex`, `.exs`, `.dart`, `.cpp`, `.c`, `.h`, `.hpp`, `.m`, `.mm`, `.pl`, `.lua`, `.r`,
+`.jl`, `.ps1`, `.kts`.
+
+## Observed vs inferred findings
+
+Every finding carries an `evidence_basis`:
+
+- **`observed`** — backed by something in the scanned source (a detection, a provider).
+- **`inferred`** — a governance checklist item. Nothing in the source backs it.
+
+Inferred findings reflect *absence of evidence, not evidence of absence*. Table output
+separates them into their own section, `--severity-threshold` ignores them, and SARIF
+does not emit them as code-scanning alerts — a governance checklist item is not a
+defect at a code location.
 
 ## Output Formats
 
@@ -49,15 +93,30 @@ aibom-scanner scan --path /path/to/your/repo
 # Table output (default in terminal)
 aibom-scanner scan --path . --format table
 
-# JSON (default when piped)
+# JSON (default when piped) — includes coverage and evidence_basis
 aibom-scanner scan --path . --format json > aibom.json
 
-# SARIF for GitHub Code Scanning
+# SARIF for GitHub Code Scanning — observed findings only, coverage in run properties
 aibom-scanner scan --path . --format sarif > results.sarif
 
-# Fail CI on high/critical findings
+# Fail CI on high/critical OBSERVED findings (exit 1)
 aibom-scanner scan --path . --severity-threshold high
+
+# Fail CI when the scanner could not read some languages (exit 3)
+aibom-scanner scan --path . --fail-on-incomplete-coverage
 ```
+
+| Exit code | Meaning |
+|:---:|---|
+| `0` | Scan completed, no gate tripped |
+| `1` | Observed findings at or above `--severity-threshold` |
+| `2` | Bad arguments, unreadable path, or interrupted |
+| `3` | `--fail-on-incomplete-coverage` set and languages were unreadable |
+
+If both gates trip, `1` wins — an observed finding is more actionable than a coverage gap.
+
+The coverage warning always goes to **stderr**, so piping `--format json` or
+`--format sarif` to a file yields clean, valid output.
 
 ## GitHub Action
 
@@ -119,7 +178,7 @@ Your Codebase
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────────┐
 │ File Walker  │────▶│  AI SDK      │────▶│ Risk Engine │────▶│ Control Mapper │
 │ git ls-files │     │  Detector    │     │ 34 rules    │     │ 48 controls    │
-│ os.walk      │     │  61 patterns │     │ 8 categories│     │ 3 frameworks   │
+│ os.walk      │     │  70 patterns │     │ 8 categories│     │ 3 frameworks   │
 └─────────────┘     └──────────────┘     └─────────────┘     └────────────────┘
                            │                    │                     │
                     Detections +          Risk findings         Gap analysis

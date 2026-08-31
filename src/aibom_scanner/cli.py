@@ -41,7 +41,12 @@ def main(argv: list[str] | None = None) -> None:
         "--severity-threshold",
         choices=["low", "medium", "high", "critical"],
         default=None,
-        help="Exit with code 1 if findings at or above this severity",
+        help="Exit with code 1 if observed findings at or above this severity (inferred findings are ignored)",
+    )
+    scan_parser.add_argument(
+        "--fail-on-incomplete-coverage",
+        action="store_true",
+        help="Exit with code 3 if the scanner could not read some source languages",
     )
 
     args = parser.parse_args(argv)
@@ -87,10 +92,30 @@ def _run_scan(args: argparse.Namespace) -> None:
     else:
         print(output)
 
-    # Check severity threshold
+    # Coverage warning always goes to stderr so it cannot corrupt piped JSON/SARIF
+    coverage = result.coverage
+    if coverage and coverage.unsupported_languages:
+        detail = ", ".join(
+            f"{coverage.unscanned_by_extension.get(ext, 0)} {ext}"
+            for ext in coverage.unsupported_languages
+        )
+        print(
+            f"warning: incomplete coverage — {detail} files could not be read "
+            f"({coverage.files_scanned} of {coverage.source_files_seen} source files scanned, "
+            f"{coverage.coverage_pct}%)",
+            file=sys.stderr,
+        )
+
+    # Check severity threshold — observed findings only. Evidence-free governance
+    # checklist items fire on every repo and made this flag unusable in v1.0.0.
     if args.severity_threshold:
         threshold = SEVERITY_RANK[args.severity_threshold]
         for risk in result.risks:
+            if risk.get("evidence_basis", "observed") == "inferred":
+                continue
             sev = risk.get("severity", "low")
             if SEVERITY_RANK.get(sev, 0) >= threshold:
                 sys.exit(1)
+
+    if args.fail_on_incomplete_coverage and coverage and coverage.unsupported_languages:
+        sys.exit(3)

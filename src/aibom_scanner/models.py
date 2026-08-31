@@ -39,6 +39,27 @@ class RiskFinding:
     affected_providers: list[str] = field(default_factory=list)
     evidence_qualifier: Optional[str] = None
     mitigation_status: Optional[str] = None
+    evidence_basis: str = "observed"  # "observed" | "inferred" — inferred = no evidence, no providers
+
+
+@dataclass
+class CoverageReport:
+    """How much of a repo's source the scanner could actually read.
+
+    Two ratios, because either one alone misleads:
+      - coverage_pct: files_scanned / source_files_seen. The honest headline.
+      - readable_coverage_pct: files_scanned / (source we intended to read).
+        Isolates scanner capability from deliberate test exclusion.
+    """
+
+    files_in_tree: int = 0
+    source_files_seen: int = 0
+    files_scanned: int = 0
+    skipped_by_path: int = 0
+    unscanned_by_extension: dict[str, int] = field(default_factory=dict)
+    coverage_pct: float = 0.0
+    readable_coverage_pct: float = 0.0
+    unsupported_languages: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -56,3 +77,4 @@ class ScanResult:
     control_mappings: list[dict] = field(default_factory=list)
     summary: dict = field(default_factory=dict)
     metadata: dict = field(default_factory=dict)
+    coverage: Optional[CoverageReport] = None

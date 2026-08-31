@@ -9,6 +9,9 @@ from pathlib import Path
 from aibom_scanner import __version__
 from aibom_scanner.control_mapper import map_controls
 from aibom_scanner.detectors.ai_sdk import (
+    SCANNABLE_EXTENSIONS,
+    SKIP_PATH_SEGMENTS,
+    SOURCE_EXTENSIONS,
     Detection,
     scan_dependencies,
     scan_file,
@@ -19,8 +22,8 @@ from aibom_scanner.detectors.secrets import (
     detect_hardcoded_keys,
     detect_secrets_management,
 )
-from aibom_scanner.models import ScanResult
-from aibom_scanner.risk_engine import classify_risks, consolidate_risks
+from aibom_scanner.models import CoverageReport, ScanResult
+from aibom_scanner.risk_engine import classify_risks, consolidate_risks, set_evidence_basis
 
 
 def _is_git_repo(path: Path) -> bool:
@@ -52,6 +55,69 @@ def _get_file_tree(path: Path) -> list[str]:
             rel = os.path.relpath(os.path.join(root, f), path)
             files.append(rel)
     return files
+
+
+def _source_extension(file_path: str) -> str | None:
+    """Return the SOURCE_EXTENSIONS extension of a path, or None if not source."""
+    lower = file_path.lower()
+    for ext in SOURCE_EXTENSIONS:
+        if lower.endswith(ext):
+            return ext
+    return None
+
+
+def _is_path_skipped(file_path: str) -> bool:
+    """True when a file is excluded for being test/fixture/example/vendor code."""
+    segments = set(file_path.lower().replace("\\", "/").split("/"))
+    return bool(segments & SKIP_PATH_SEGMENTS)
+
+
+def build_coverage_report(file_paths: list[str], scanned_paths: list[str]) -> CoverageReport:
+    """Measure how much of the repo's source the scanner could actually read.
+
+    Separates the two reasons a source file was not read:
+      - skipped_by_path: intentional exclusion (tests, fixtures, examples, vendor)
+      - unscanned_by_extension: this scanner version cannot parse the language
+
+    Every source file is attributed to exactly one bucket, so
+    files_scanned + skipped_by_path + sum(unscanned_by_extension) == source_files_seen.
+    """
+    scanned = set(scanned_paths)
+    source_files_seen = 0
+    source_files_scanned = 0
+    skipped_by_path = 0
+    unscanned_by_extension: dict[str, int] = {}
+
+    for path in file_paths:
+        ext = _source_extension(path)
+        if ext is None:
+            continue
+        source_files_seen += 1
+        if path in scanned:
+            source_files_scanned += 1
+        elif _is_path_skipped(path):
+            skipped_by_path += 1
+        else:
+            unscanned_by_extension[ext] = unscanned_by_extension.get(ext, 0) + 1
+
+    readable = source_files_seen - skipped_by_path
+    coverage_pct = round((source_files_scanned / source_files_seen) * 100, 1) if source_files_seen > 0 else 0.0
+    readable_coverage_pct = round((source_files_scanned / readable) * 100, 1) if readable > 0 else 0.0
+
+    unsupported_languages = sorted(
+        ext for ext in unscanned_by_extension if ext not in SCANNABLE_EXTENSIONS
+    )
+
+    return CoverageReport(
+        files_in_tree=len(file_paths),
+        source_files_seen=source_files_seen,
+        files_scanned=source_files_scanned,
+        skipped_by_path=skipped_by_path,
+        unscanned_by_extension=unscanned_by_extension,
+        coverage_pct=coverage_pct,
+        readable_coverage_pct=readable_coverage_pct,
+        unsupported_languages=unsupported_languages,
+    )
 
 
 def scan_directory(path: str | Path) -> ScanResult:
@@ -141,11 +207,14 @@ def scan_directory(path: str | Path) -> ScanResult:
         code_contexts=code_contexts,
     )
     risks = consolidate_risks(raw_risks)
+    set_evidence_basis(risks)
 
     # Control mapping
     control_mappings = map_controls(risks)
 
     scan_end = datetime.now(timezone.utc).isoformat()
+
+    coverage = build_coverage_report(files, list(file_contents))
 
     # Provider summary
     provider_counts: dict[str, int] = {}
@@ -186,6 +255,7 @@ def scan_directory(path: str | Path) -> ScanResult:
             "scan_end": scan_end,
             "path": str(path),
         },
+        coverage=coverage,
     )
 
 
